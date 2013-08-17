@@ -1,89 +1,198 @@
 
 package st.alr.mqttitude.support;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.EnumSet;
+import java.util.Set;
+import java.util.prefs.PreferenceChangeListener;
+
+import de.greenrobot.event.EventBus;
+import st.alr.mqttitude.App;
+import st.alr.mqttitude.R;
+import st.alr.mqttitude.services.ServiceMqtt;
+import st.alr.mqttitude.support.Defaults.State;
 import android.content.Context;
-import android.location.GpsStatus;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
 import android.location.Location;
-import android.location.LocationListener;
-import android.location.LocationManager;
-import android.os.Bundle;
+import android.preference.PreferenceManager;
 import android.util.Log;
 
-public class Locator
-{
-    private Listener locationListener;
-    private LocationManager locationManager;
-    private Context context;
-    LocatorCallback callback;
+public abstract class Locator implements MqttPublish {
+    protected Context context;
+    protected SharedPreferences sharedPreferences;
+    private OnSharedPreferenceChangeListener preferencesChangedListener;
+    protected Date lastPublish;
+    private java.text.DateFormat lastPublishDateFormat;
+    private Set<Defaults.State> state;
+    protected final String TAG = this.toString();
 
-    public Locator(Context context) {
-        locationListener = new Listener();
-        locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
+    Locator(Context context) {
+        this.context = context;
+        this.lastPublishDateFormat = new SimpleDateFormat("y/M/d H:m:s");
+        this.sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+        this.state = EnumSet.of(Defaults.State.Idle);
+
+        preferencesChangedListener = new SharedPreferences.OnSharedPreferenceChangeListener() {
+            @Override
+            public void onSharedPreferenceChanged(SharedPreferences sharedPreference, String key) {
+                handlePreferences();
+            }
+        };
+        sharedPreferences.registerOnSharedPreferenceChangeListener(preferencesChangedListener);
     }
+
+    abstract public Location getLastKnownLocation();
+
+    abstract protected void handlePreferences();
+
+    abstract public void start();
+
+    abstract public void enableForegroundMode();
+
+    abstract public void enableBackgroundMode();
+
+    public void publishLastKnownLocation() {
+        Log.v(TAG, "publishLastKnownLocation");
+
+        Intent service = new Intent(context, ServiceMqtt.class);
+        StringBuilder payload = new StringBuilder();
+        Date d = new Date();
+        Location l = getLastKnownLocation();
+        String topic = sharedPreferences.getString(Defaults.SETTINGS_KEY_TOPIC, Defaults.VALUE_TOPIC);
+
+        if (topic == null) {
+            addState(State.NOTOPIC);
+            return;
+        }
+        if (l == null) {
+            this.addState(State.LocatingFail);
+            return;
+        }
+
+        context.startService(service);
+
+        payload.append("{");
+        payload.append("\"lat\": ").append("\"").append(l.getLatitude()).append("\"");
+        payload.append(", \"lon\": ").append("\"").append(l.getLongitude()).append("\"");
+        payload.append(", \"tst\": ").append("\"").append(d.getTime()).append("\"");
+        payload.append(", \"acc\": ").append("\"").append(Math.round(l.getAccuracy() * 100) / 100.0d).append("m").append("\"");
+        payload.append(", \"alt\": ").append("\"").append(l.getAltitude()).append("\"");
+        payload.append("}");
+
+        ServiceMqtt.getInstance().publishWithTimeout(
+                topic,
+                payload.toString(),
+                sharedPreferences.getBoolean(Defaults.SETTINGS_KEY_RETAIN, Defaults.VALUE_RETAIN),
+                Integer.parseInt(sharedPreferences.getString(Defaults.SETTINGS_KEY_QOS, Defaults.VALUE_QOS))
+                , 20, this);
+
+    }
+
+    public void publishSuccessfull() {
+        Log.v(TAG, "publishSuccessfull");
+        lastPublish = new Date();
+        EventBus.getDefault().post(new Events.PublishSuccessfull());
+        // This is a bit hacked as we append an empty space on every second
+        // ticker update. Otherwise consecutive tickers with the same text would
+        // not be shown
+        App.getInstance().updateTicker(
+                App.getInstance().getString(R.string.statePublished));
+        this.resetState();
+    }
+
+    public Set<State> getState() {
+        return this.state;
+    }
+
+    public String getStateAsText() {
+        if (this.state.contains(State.NOTOPIC)) {
+            return App.getInstance().getString(R.string.stateNotopic);
+        }
+        if (this.state.contains(State.PublishConnectionTimeout)) {
+            return App.getInstance().getString(R.string.statePublishTimeout);
+        }
+        if (this.state.contains(State.LocatingFail)) {
+            return App.getInstance().getString(R.string.stateLocatingFail);
+        }
+
+        if (this.state.contains(State.Publishing)) {
+            return App.getInstance().getString(R.string.statePublishing);
+        }
+        if (this.state.contains(State.PublishConnectionWaiting)) {
+            return App.getInstance().getString(R.string.stateWaiting);
+        }
+        return App.getInstance().getString(R.string.stateIdle);
+    }
+
+    public void publishTimeout() {
+        Log.e(TAG, "publishTimeout");
+        this.addState(State.PublishConnectionTimeout);
+    }
+
+    public void publishing() {
+        Log.v(TAG, "publishing");
+        this.addState(State.Publishing);
+    }
+
+    public void publishWaiting() {
+        Log.v(TAG, "waiting for broker connection");
+        this.addState(State.PublishConnectionWaiting);
+    }
+
+    protected void setStateTo(State s) {
+        this.state.clear();
+        this.state.add(s);
+    }
+
+    protected void addState(State s) {       
+        this.state.add(s);
+        if (isErrorState(s)) {
+            Log.v(this.toString(), "error state");
+            App.getInstance().updateTicker(getStateAsText());
+        }
+        App.getInstance().updateNotification();
+        EventBus.getDefault().post(new Events.StateChanged());
+    }
+
+    private boolean isErrorState(State s) {
+        return s == Defaults.State.LocatingFail || s == Defaults.State.NOTOPIC
+                || s == Defaults.State.PublishConnectionTimeout;
+    }
+
+    protected void removeState(State s) {
+        this.state.remove(s);
+        EventBus.getDefault().post(new Events.StateChanged());
+    }
+
+    public void resetState() {
+        this.setStateTo(State.Idle);
+        EventBus.getDefault().post(new Events.StateChanged());
+        App.getInstance().updateNotification();
+    }
+
+    public String getLastupdateText() {
+        if (lastPublish != null)
+            return lastPublishDateFormat.format(lastPublish);
+        else
+            return context.getResources().getString(R.string.na);
+    }
+
+    public boolean areBackgroundUpdatesEnabled() {
+        return sharedPreferences.getBoolean(Defaults.SETTINGS_KEY_BACKGROUND_UPDATES,
+                Defaults.VALUE_BACKGROUND_UPDATES);
+    }
+
     
-    public void get(LocatorCallback cb) {
-        Log.v(this.toString(), "get");
-        this.callback =  cb;
-        locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 0, 0, locationListener);
-        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, locationListener);
+    public int getUpdateIntervall() {
+        return Integer.parseInt(sharedPreferences.getString(Defaults.SETTINGS_KEY_BACKGROUND_UPDATES_INTERVAL,
+                Defaults.VALUE_BACKGROUND_UPDATES_INTERVAL));
     }
 
-    public void stop() {
-        locationManager.removeUpdates(locationListener);
-        Log.v("stopLocationListener", "locationManager stopped");
+    public int getUpdateIntervallInMiliseconds() {
+        return getUpdateIntervall() * 60 * 1000;
     }
 
-    private class Listener implements LocationListener {
-        @Override
-        public void onStatusChanged(String provider, int status, Bundle extras) {
-            Log.v(this.toString(), "position receiver onStatusChanged");
-
-            try {
-                String strStatus = "";
-                switch (status) {
-                    case GpsStatus.GPS_EVENT_FIRST_FIX:
-                        strStatus = "GPS_EVENT_FIRST_FIX";
-                        break;
-                    case GpsStatus.GPS_EVENT_SATELLITE_STATUS:
-                        strStatus = "GPS_EVENT_SATELLITE_STATUS";
-                        break;
-                    case GpsStatus.GPS_EVENT_STARTED:
-                        strStatus = "GPS_EVENT_STARTED";
-                        break;
-                    case GpsStatus.GPS_EVENT_STOPPED:
-                        strStatus = "GPS_EVENT_STOPPED";
-                        break;
-                    default:
-                        strStatus = String.valueOf(status);
-                        break;
-                }
-                Log.v(this.toString(), "onStatusChanged: " + strStatus);
-
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-
-        @Override
-        public void onProviderEnabled(String provider) {
-        }
-
-        @Override
-        public void onProviderDisabled(String provider) {
-        }
-
-        @Override
-        public void onLocationChanged(Location location) {
-            try {
-                if(callback != null)
-                    callback.onLocationRespone(location);
-           
-            } catch (Exception e) {
-                e.printStackTrace();
-            } finally {
-                locationManager.removeUpdates(this);
-                callback = null;
-            }
-        }
-    }
 }

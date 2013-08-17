@@ -12,6 +12,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
 
 import org.eclipse.paho.client.mqttv3.MqttCallback;
@@ -189,13 +190,9 @@ public class ServiceMqtt extends Service implements MqttCallback
         {
             String brokerAddress = sharedPreferences.getString(Defaults.SETTINGS_KEY_BROKER_HOST, Defaults.VALUE_BROKER_HOST);
             String brokerPort = sharedPreferences.getString(Defaults.SETTINGS_KEY_BROKER_PORT, Defaults.VALUE_BROKER_PORT);
-
-            String handle = "ssl";
+            String prefix = getBrokerSecurityMode() == Defaults.VALUE_BROKER_SECURITY_NONE? "tcp" : "ssl";
             
-            if(sharedPreferences.getInt(Defaults.SETTINGS_KEY_BROKER_SECURITY, Defaults.VALUE_BROKER_SECURITY_NONE) == Defaults.VALUE_BROKER_SECURITY_NONE)
-                handle = "tcp";
-            
-            mqttClient = new MqttClient(handle+"://" + brokerAddress + ":" + brokerPort, getClientId(), null);
+            mqttClient = new MqttClient(prefix +"://" + brokerAddress + ":" + brokerPort, getClientId(), null);
             mqttClient.setCallback(this);
         
         } catch (MqttException e)
@@ -204,12 +201,13 @@ public class ServiceMqtt extends Service implements MqttCallback
             mqttClient = null;
             changeMqttConnectivity(MQTT_CONNECTIVITY.DISCONNECTED);
         }
-
-
-        
-
+    }
+    
+    private int getBrokerSecurityMode(){
+        return sharedPreferences.getInt(Defaults.SETTINGS_KEY_BROKER_SECURITY, Defaults.VALUE_BROKER_SECURITY_NONE);
     }
 
+    //
     private javax.net.ssl.SSLSocketFactory getSSLSocketFactory() throws CertificateException, KeyStoreException, NoSuchAlgorithmException, IOException, KeyManagementException {
         CertificateFactory cf = CertificateFactory.getInstance("X.509");
         // From https://www.washington.edu/itconnect/security/ca/load-der.crt
@@ -251,11 +249,9 @@ public class ServiceMqtt extends Service implements MqttCallback
             changeMqttConnectivity(MQTT_CONNECTIVITY.CONNECTING);
             MqttConnectOptions options = new MqttConnectOptions();
 
-            
-
-         // TODO: Make this nicer
-         if(sharedPreferences.getInt(Defaults.SETTINGS_KEY_BROKER_SECURITY, Defaults.VALUE_BROKER_SECURITY_NONE) == Defaults.VALUE_BROKER_SECURITY_SSL)
-            options.setSocketFactory(getSSLSocketFactory());
+         
+         if(getBrokerSecurityMode() == Defaults.VALUE_BROKER_SECURITY_SSL_CUSTOMCACRT)
+             options.setSocketFactory(this.getSSLSocketFactory());
                         
          if(!sharedPreferences.getString(Defaults.SETTINGS_KEY_BROKER_PASSWORD, "").equals(""))
              options.setPassword(sharedPreferences.getString(Defaults.SETTINGS_KEY_BROKER_PASSWORD, "").toCharArray());
@@ -356,10 +352,14 @@ public class ServiceMqtt extends Service implements MqttCallback
 
 
     public void publish(String topicStr, String payload) {
-        publish(topicStr, payload, true);
+        publish(topicStr, payload, false, 0);
     }
     
     public void publish(String topicStr, String payload, boolean retained) {
+        publish(topicStr, payload, retained, 0);
+    }
+    
+    public void publish(String topicStr, String payload, boolean retained, int qos) {
         boolean isOnline = isOnline(false);
         boolean isConnected = isConnected();
 
@@ -367,7 +367,7 @@ public class ServiceMqtt extends Service implements MqttCallback
             return;
         }
         MqttMessage message = new MqttMessage(payload.getBytes());
-        message.setQos(0);
+        message.setQos(qos);
         message.setRetained(retained);
         
         try
@@ -539,33 +539,32 @@ public class ServiceMqtt extends Service implements MqttCallback
         }
     }
     
-    public void publishWithTimeout(final String topic, final String payload, final boolean retained, int timeout, final MqttPublish callback) {
-        Log.v(this.toString(), topic + ":" + payload);
+    public void publishWithTimeout(final String topic, final String payload, final boolean retained, final int qos,  int timeout, final MqttPublish callback) {
+        
+        Runnable r = new Runnable() {
+            @Override
+            public void run() {
+                deferredPublish = null;
+                Log.d(this.toString(), "Broker connection established, publishing message");
+                callback.publishing();
+                publish(topic, payload, retained, qos);
+                callback.publishSuccessfull();                
+            }
+        };
+        
+
         if (getConnectivity() == MQTT_CONNECTIVITY.CONNECTED) {
-            callback.publishing();
-            publish(topic, payload, retained);
-            callback.publishSuccessfull();
-            
+            r.run();
         } else {
             Log.d(this.toString(), "No broker connection established yet, deferring publish");
-            callback.waiting();
-            deferredPublish = new Runnable() {
-                @Override
-                public void run() {
-                    deferredPublish = null;
-                    Log.d(this.toString(), "Broker connection established, publishing deferred message");
-                    callback.publishing();
-                    publish(topic, payload, retained);
-                    callback.publishSuccessfull();
-                }
-                
-            };
+            callback.publishWaiting();
+            deferredPublish = r;                
+
             Handler handler = new Handler();
             handler.postDelayed(new Runnable() {
                 @Override
                 public void run() {
-                    Log.d(this.toString(),  "Publish timed out");
-                    deferredPublish = null;
+                    deferredPublish = null;                        
                     callback.publishTimeout();
                 }
             }, timeout * 1000);        
