@@ -11,6 +11,7 @@ import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -24,6 +25,7 @@ import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
+import org.eclipse.paho.client.mqttv3.MqttPersistenceException;
 import org.eclipse.paho.client.mqttv3.MqttTopic;
 
 import st.alr.mqttitude.App;
@@ -33,7 +35,12 @@ import st.alr.mqttitude.support.Defaults.State;
 import st.alr.mqttitude.support.Events;
 import st.alr.mqttitude.support.MqttPublish;
 import android.annotation.SuppressLint;
+import android.app.AlarmManager;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -54,7 +61,6 @@ public class ServiceMqtt extends ServiceBindable implements MqttCallback
     private static State.ServiceMqtt state = State.ServiceMqtt.INITIAL;
     
     private short keepAliveSeconds;
-    private String mqttClientId;
     private MqttClient mqttClient;
     private SharedPreferences sharedPreferences;
     private static ServiceMqtt instance;
@@ -64,6 +70,9 @@ public class ServiceMqtt extends ServiceBindable implements MqttCallback
     private Exception error;
     private HandlerThread pubThread;
     private Handler pubHandler;
+
+    private BroadcastReceiver netConnReceiver;
+    private BroadcastReceiver pingSender;
 
     @Override
     public void onCreate()
@@ -298,8 +307,23 @@ public class ServiceMqtt extends ServiceBindable implements MqttCallback
 
         if (!isConnected())
             Log.e(this.toString(), "onConnect: !isConnected");
-    }
+                
+        // Establish observer to monitor wifi and radio connectivity 
+        if (netConnReceiver == null) {
+            netConnReceiver = new NetworkConnectionIntentReceiver();
+            registerReceiver(netConnReceiver, new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
+        }
 
+        // Establish ping sender
+        if (pingSender == null) {
+            pingSender = new PingSender();
+            registerReceiver(pingSender, new IntentFilter(Defaults.INTENT_ACTION_PUBLICH_PING));
+        }
+        
+        scheduleNextPing();
+
+    }
+    
     public void disconnect(boolean fromUser)
     {
         Log.v(this.toString(), "disconnect");
@@ -310,6 +334,25 @@ public class ServiceMqtt extends ServiceBindable implements MqttCallback
         if (fromUser)
             changeState(Defaults.State.ServiceMqtt.DISCONNECTED_USERDISCONNECT);
 
+        try
+        {
+            if (netConnReceiver != null)
+            {
+                unregisterReceiver(netConnReceiver);
+                netConnReceiver = null;
+            }
+
+            if (pingSender != null)
+            {
+                unregisterReceiver(pingSender);
+                pingSender = null;
+            }
+        } catch (Exception eee)
+        {
+            Log.e(this.toString(), "Unregister failed", eee);
+        }
+
+        
         try
         {
             if (isConnected())
@@ -346,6 +389,7 @@ public class ServiceMqtt extends ServiceBindable implements MqttCallback
         else
         {
             changeState(Defaults.State.ServiceMqtt.DISCONNECTED);
+            scheduleNextPing();
         }
         wl.release();
     }
@@ -609,12 +653,114 @@ public class ServiceMqtt extends ServiceBindable implements MqttCallback
     }
 
     @Override
-    public void messageArrived(String topic, MqttMessage message) throws Exception {}
+    public void messageArrived(String topic, MqttMessage message) throws Exception {
+        scheduleNextPing();
+    }
 
     @Override
     public void deliveryComplete(IMqttDeliveryToken token) {}
 
     @Override
     protected void onStartOnce() {}
+    
+    
+    private class NetworkConnectionIntentReceiver extends BroadcastReceiver
+    {
+
+        @Override
+        @SuppressLint("Wakelock")
+        public void onReceive(Context ctx, Intent intent)
+        {
+            Log.v(this.toString(), "NetworkConnectionIntentReceiver: onReceive");
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            WakeLock wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MQTTitude");
+            wl.acquire();
+
+            if (isOnline(true) && !isConnected() && !isConnecting()) {
+                Log.v(this.toString(), "NetworkConnectionIntentReceiver: triggering doStart(null, -1)");
+                doStart(null, 1);
+            
+            }
+            wl.release();
+        }
+    }
+    
+    public class PingSender extends BroadcastReceiver
+    {
+        @Override
+        public void onReceive(Context context, Intent intent)
+        {
+
+            if (isOnline(true) && !isConnected() && !isConnecting()) {
+                Log.v(this.toString(), "ping: isOnline()=" + isOnline(true)  + ", isConnected()=" + isConnected());
+                doStart(null, -1);
+            } else if (!isOnline(true)) {
+                Log.d(this.toString(), "ping: Waiting for network to come online again");
+            } else {            
+                try
+                {
+                    ping();
+                } catch (MqttException e)
+                {
+                    // if something goes wrong, it should result in
+                    // connectionLost
+                    // being called, so we will handle it there
+                    Log.e(this.toString(), "ping failed - MQTT exception", e);
+
+                    // assume the client connection is broken - trash it
+                    try {
+                        mqttClient.disconnect();
+                    } catch (MqttPersistenceException e1) {
+                        Log.e(this.toString(), "disconnect failed - persistence exception", e1);
+                    } catch (MqttException e2)
+                    {
+                        Log.e(this.toString(), "disconnect failed - mqtt exception", e2);
+                    }
+
+                    // reconnect
+                    Log.w(this.toString(), "onReceive: MqttException=" + e);
+                    doStart(null, -1);
+                }
+            }
+            scheduleNextPing();
+        }
+    }
+    
+    private void scheduleNextPing()
+    {
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(this, 0, new Intent(
+                Defaults.INTENT_ACTION_PUBLICH_PING), PendingIntent.FLAG_UPDATE_CURRENT);
+
+        Calendar wakeUpTime = Calendar.getInstance();
+        wakeUpTime.add(Calendar.SECOND, keepAliveSeconds);
+
+        AlarmManager aMgr = (AlarmManager) getSystemService(ALARM_SERVICE);
+        aMgr.set(AlarmManager.RTC_WAKEUP, wakeUpTime.getTimeInMillis(), pendingIntent);
+    }
+
+        
+    private void ping() throws MqttException {
+
+        MqttTopic topic = mqttClient.getTopic("$SYS/keepalive");
+
+        MqttMessage message = new MqttMessage();
+        message.setRetained(false);
+        message.setQos(1);
+        message.setPayload(new byte[] {
+            0
+        });
+
+        try
+        {
+            topic.publish(message);
+        } catch (org.eclipse.paho.client.mqttv3.MqttPersistenceException e)
+        {
+            e.printStackTrace();
+        } catch (org.eclipse.paho.client.mqttv3.MqttException e)
+        {
+            throw new MqttException(e);
+        }
+    }
+
 
 }

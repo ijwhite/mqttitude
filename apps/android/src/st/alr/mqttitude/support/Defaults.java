@@ -1,5 +1,6 @@
 package st.alr.mqttitude.support;
 
+import android.content.Intent;
 import st.alr.mqttitude.App;
 import st.alr.mqttitude.R;
 
@@ -42,6 +43,7 @@ public class Defaults {
     public static final String VALUE_REPO_URL = "http://github.com/binarybucks/mqttitude";
     public static final String VALUE_ISSUES_MAIL = "issues@mqttitude.org";
     public static final String INTENT_ACTION_PUBLISH_LASTKNOWN = "st.alr.mqttitude.intent.PUB_LASTKNOWN";
+    public static final String INTENT_ACTION_PUBLICH_PING = "st.alr.mqttitude.intent.PUB_PING";
 
     public static class State {
         public static enum ServiceMqtt {
