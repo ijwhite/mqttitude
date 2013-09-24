@@ -76,6 +76,11 @@
             android:summary="@string/preferencesNotificationTickerOnPublishSummary"
             android:title="@string/preferencesNotificationTickerOnPublishTitle" />
         
+          <CheckBoxPreference android:key="autostartOnBoot"
+              android:defaultValue="false"
+              android:summary="Run the application when the device starts"
+              android:title="Autostart"/>
+          
         </PreferenceScreen>
     <PreferenceScreen
         android:key="activityInfo"

@@ -17,7 +17,7 @@
     <string name="preferencesLicensesTitle">"Licenses"</string>
     <string name="preferencesLicensesSummary">"Details for included open-source software"</string>
     <string name="preferencesLicensesDismiss">"Dismiss"</string>
-    <string name="preferencesNotification">Notifications</string>
+    <string name="preferencesNotification">Behaviour</string>
     <string name="preferencesNotificationTickerOnPublishSummary">Show a ticker on successful publishes</string>
     <string name="preferencesNotificationTickerOnPublishTitle">Ticker on publish</string>  
     <string name="preferencesNotificationSummary">"Display a notification to keep running"</string>
