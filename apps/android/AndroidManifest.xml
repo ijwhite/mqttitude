@@ -23,6 +23,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name="st.alr.mqttitude.App"
@@ -63,11 +64,24 @@
             android:name="st.alr.mqttitude.services.ServiceLocatorFused"
             android:exported="false" >
         </service>
-
+        <service
+            android:name="st.alr.mqttitude.services.ServiceApplication"
+            android:exported="false" >
+        </service>
+        
         <receiver
-            android:name="st.alr.mqttitude.support.BackgroundPublishReceiver" 
+            android:name="st.alr.mqttitude.support.BackgroundPublishReceiver"
             android:enabled="true" >
-            <action android:name="st.alr.mqttitude.UPDATE"/>
+            <action android:name="st.alr.mqttitude.UPDATE" />
+        </receiver>
+        <receiver
+           android:name="st.alr.mqttitude.support.BootCompleteReceiver"
+            android:enabled="true"
+            android:exported="true" >
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </receiver>
     </application>
 

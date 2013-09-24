@@ -8,6 +8,7 @@ import java.util.Locale;
 import java.util.Map;
 
 import st.alr.mqttitude.preferences.ActivityPreferences;
+import st.alr.mqttitude.services.ServiceApplication;
 import st.alr.mqttitude.services.ServiceBindable;
 import st.alr.mqttitude.services.ServiceLocator;
 import st.alr.mqttitude.support.Events;
@@ -110,25 +111,9 @@ public class ActivityMain extends android.support.v4.app.FragmentActivity {
     @Override
     protected void onStart() {
         super.onStart();
+        Log.v(this.toString(), "Starting app service");
+        startService(new Intent(this, ServiceApplication.class));        
         
-        Log.v(this.toString(), "binding");
-
-        
-        locatorConnection = new ServiceConnection() {
-            
-            @Override
-            public void onServiceDisconnected(ComponentName name) {
-                serviceLocator = null;                
-            }
-            
-            @Override
-            public void onServiceConnected(ComponentName name, IBinder service) {
-                Log.v(this.toString(), "bound");
-                serviceLocator = (ServiceLocator) ((ServiceBindable.ServiceBinder)service).getService();                
-            }
-        };
-        
-        bindService(new Intent(this, App.getServiceLocatorClass()), locatorConnection, Context.BIND_AUTO_CREATE);
         EventBus.getDefault().registerSticky(this);
         
         if(serviceLocator != null)
@@ -138,7 +123,6 @@ public class ActivityMain extends android.support.v4.app.FragmentActivity {
     
     @Override
     public void onStop() {
-        unbindService(locatorConnection);
         EventBus.getDefault().unregister(this);
 
         if(serviceLocator != null)
@@ -258,7 +242,7 @@ public class ActivityMain extends android.support.v4.app.FragmentActivity {
                 locationPrimary.setText(location.toLatLonString());                
             }
         }
-        locationMeta.setText(App.getInstance().formatDate(new Date()));            
+        locationMeta.setText(ServiceApplication.getInstance().formatDate(new Date()));            
 
         showLocationAvailable();
     }

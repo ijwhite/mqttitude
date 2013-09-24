@@ -464,7 +464,7 @@ public class ServiceMqtt extends ServiceBindable implements MqttCallback
 
     public static String getDefaultClientId()
     {
-            String mqttClientId = Secure.getString(App.getInstance().getContentResolver(), Secure.ANDROID_ID);
+            String mqttClientId = ServiceApplication.getAndroidId();
 
             // MQTT specification doesn't allow client IDs longer than 23 chars
             if (mqttClientId.length() > 22)

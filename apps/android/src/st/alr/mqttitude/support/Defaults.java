@@ -3,6 +3,7 @@ package st.alr.mqttitude.support;
 import android.content.Intent;
 import st.alr.mqttitude.App;
 import st.alr.mqttitude.R;
+import st.alr.mqttitude.services.ServiceApplication;
 
 public class Defaults {
 
@@ -74,7 +75,7 @@ public class Defaults {
                     id = R.string.connectivityDisconnected;
                     
             }
-            return App.getInstance().getString(id);
+            return ServiceApplication.getInstance().getString(id);
         }
         
         public static enum ServiceLocator {
@@ -102,7 +103,7 @@ public class Defaults {
                         id = R.string.stateIdle;
                 }
                 
-                return App.getInstance().getString(id);
+                return ServiceApplication.getInstance().getString(id);
             };
         
     }

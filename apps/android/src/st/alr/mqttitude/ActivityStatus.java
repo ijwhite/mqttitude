@@ -1,6 +1,7 @@
 
 package st.alr.mqttitude;
 
+import st.alr.mqttitude.services.ServiceApplication;
 import st.alr.mqttitude.support.Defaults;
 import st.alr.mqttitude.support.Events;
 import st.alr.mqttitude.support.GeocodableLocation;
@@ -64,7 +65,7 @@ public class ActivityStatus extends Activity {
     public void onEventMainThread(Events.LocationUpdated e) {
         locatorCurLatLon.setText(e.getGeocodableLocation().toLatLonString());
         locatorCurAccuracy.setText("±" + e.getGeocodableLocation().getLocation().getAccuracy()+"m");
-        locatorCurLatLonTime.setText(App.getInstance().formatDate(e.getDate()));
+        locatorCurLatLonTime.setText(ServiceApplication.getInstance().formatDate(e.getDate()));
     }
 
     
@@ -74,7 +75,7 @@ public class ActivityStatus extends Activity {
             GeocodableLocation l = (GeocodableLocation)e.getExtra();
             locatorLastPubLatLon.setText(l.toLatLonString());
             locatorLastPubAccuracy.setText("±" + l.getLocation().getAccuracy()+"m");
-            locatorLastPubLatLonTime.setText(App.getInstance().formatDate(e.getDate()));            
+            locatorLastPubLatLonTime.setText(ServiceApplication.getInstance().formatDate(e.getDate()));            
         }
     }
 

@@ -11,6 +11,7 @@ public abstract class ServiceBindable extends Service {
     protected boolean started;
     protected ServiceBinder binder;
     private final String TAG  = "ServiceBindable";
+    
     @Override
     public void onCreate()
     {
