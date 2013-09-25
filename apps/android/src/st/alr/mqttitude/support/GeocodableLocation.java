@@ -3,7 +3,6 @@ package st.alr.mqttitude.support;
 import java.util.Date;
 
 import android.location.Location;
-import android.util.Log;
 
 public class GeocodableLocation {
     String geocoder; 
@@ -25,7 +24,6 @@ public class GeocodableLocation {
     }
 
     public void setGeocoder(String geocoder) {
-        Log.v("Geocodable location", "setting geocoder" );
         this.geocoder = geocoder;
     }
 
@@ -35,16 +33,6 @@ public class GeocodableLocation {
 
     public double getLongitude() {
         return location.getLongitude();
-    }
-    public String toString() {
-        if(geocoder != null)
-            return geocoder;
-        else
-            return toLatLonString();
-    }
-    public String toLatLonString(){
-        return getLatitude() + " : " + getLongitude();
-
     }
     
 }

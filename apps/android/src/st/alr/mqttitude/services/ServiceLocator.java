@@ -1,8 +1,11 @@
 
 package st.alr.mqttitude.services;
 
+import java.io.IOException;
 import java.util.Date;
 import java.util.EnumSet;
+import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 import de.greenrobot.event.EventBus;
@@ -19,6 +22,8 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
+import android.location.Address;
+import android.location.Geocoder;
 import android.os.IBinder;
 import android.preference.PreferenceManager;
 import android.util.Log;
@@ -27,7 +32,7 @@ public abstract class ServiceLocator extends ServiceBindable implements MqttPubl
     protected SharedPreferences sharedPreferences;
     private OnSharedPreferenceChangeListener preferencesChangedListener;
     protected Date lastPublish;
-    private static Defaults.State.ServiceLocator state = Defaults.State.ServiceLocator.INITIAL;
+    private static Set<Defaults.State> state;
     private final String TAG = "ServiceLocator";
     protected ServiceMqtt serviceMqtt;
     private ServiceConnection mqttConnection;
@@ -42,6 +47,7 @@ public abstract class ServiceLocator extends ServiceBindable implements MqttPubl
         instance = this;
         this.started = false;        
         this.sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+        state = EnumSet.of(Defaults.State.Idle);
 
         preferencesChangedListener = new SharedPreferences.OnSharedPreferenceChangeListener() {
             @Override
@@ -79,10 +85,6 @@ public abstract class ServiceLocator extends ServiceBindable implements MqttPubl
 
     abstract public void enableBackgroundMode();
 
-    public static ServiceLocator getInstance(){
-        return instance;
-    }
-    
     public void publishLastKnownLocation() {
         Log.v(TAG, "publishLastKnownLocation");
         lastPublish = new Date();
@@ -92,14 +94,37 @@ public abstract class ServiceLocator extends ServiceBindable implements MqttPubl
         GeocodableLocation l = getLastKnownLocation();
         String topic = sharedPreferences.getString(Defaults.SETTINGS_KEY_TOPIC, Defaults.VALUE_TOPIC);
 
-           
+        //added unique ID for this app
+        //String uid = sharedPreferences.getString(Defaults.SETTINGS_KEY_BROKER_USERNAME, "unknown");
+        
+        Geocoder geo = new Geocoder(this.getApplicationContext(), Locale.getDefault());
+        String geoAddress = "Uknown";
+        List<Address> addresses;
+		try {
+			addresses = geo.getFromLocation(l.getLatitude(), l.getLongitude(), 1);
+		
+        if (addresses.isEmpty()) {
+            //addres.setText("Waiting for Location");
+        }
+        else {
+            if (addresses.size() > 0) {
+                geoAddress =  addresses.get(0).getAddressLine(0) +", " + addresses.get(0).getLocality();
+                //Toast.makeText(getApplicationContext(), "Address:- " + addresses.get(0).getFeatureName() + addresses.get(0).getAdminArea() + addresses.get(0).getLocality(), Toast.LENGH_LONG).show();
+                geoAddress = geoAddress.trim();
+            }
+        }
+
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}   
         if (topic == null) {
-            changeState(Defaults.State.ServiceLocator.NOTOPIC);
+            addState(State.NOTOPIC);
             return;
         }
         
         if (l == null) {
-            changeState(Defaults.State.ServiceLocator.NOLOCATION);
+            this.addState(State.LocatingFail);
             return;
         }
 
@@ -110,6 +135,7 @@ public abstract class ServiceLocator extends ServiceBindable implements MqttPubl
         payload.append(", \"tst\": ").append("\"").append((int)(d.getTime()/1000)).append("\"");
         payload.append(", \"acc\": ").append("\"").append(Math.round(l.getLocation().getAccuracy() * 100) / 100.0d).append("m").append("\"");
         payload.append(", \"alt\": ").append("\"").append(l.getLocation().getAltitude()).append("\"");
+        payload.append(", \"gca\": ").append("\"").append(geoAddress).append("\"");
         payload.append("}");
 
         ServiceMqtt.getInstance().publish(
@@ -124,52 +150,83 @@ public abstract class ServiceLocator extends ServiceBindable implements MqttPubl
     @Override
     public void publishSuccessfull(Object extra) {
         Log.v(TAG, "publishSuccessfull");
-        changeState(Defaults.State.ServiceLocator.INITIAL);
-        EventBus.getDefault().postSticky(new Events.PublishSuccessfull(extra));       
+        this.resetState();
+        EventBus.getDefault().post(new Events.PublishSuccessfull(extra));       
     }
 
-    public static Defaults.State.ServiceLocator getState() {
+    public static Set<State> getState() {
         return state;
     }
-    public static String getStateAsString(){
-        return stateAsString(getState());
-    }
     
-    public static String stateAsString(Defaults.State.ServiceLocator state) {
-        return Defaults.State.toString(state);
-    }
-
-    private void changeState(Defaults.State.ServiceLocator newState) {
-        Log.d(this.toString(), "ServiceLocator state changed to: " + newState);
-        EventBus.getDefault().postSticky(new Events.StateChanged.ServiceLocator(newState));
-        state = newState;
-    }
-
     
 
+    
+    public static String getStateAsText() {
+        int id = R.string.stateIdle;
+        
+        if(state != null) {
+
+            if (state.contains(State.Publishing))
+                id = R.string.statePublishing;
+            else if (state.contains(State.PublishConnectionWaiting))
+                id = R.string.stateWaiting;                        
+            else if (state.contains(State.PublishConnectionTimeout))
+                id = R.string.statePublishTimeout;
+            else if (state.contains(State.LocatingFail))
+                id = R.string.stateLocatingFail;    
+            else if (state.contains(State.NOTOPIC))
+                id = R.string.stateNotopic;
+        }
+        return App.getInstance().getString(id);
+    }
 
     @Override
     public void publishFailed(Object extra) {
-        changeState(Defaults.State.ServiceLocator.PUBLISHING_TIMEOUT);
+        Log.e(TAG, "publishTimeout");
+        this.addState(State.PublishConnectionTimeout);
     }
 
     @Override
     public void publishing(Object extra) {
-        changeState(Defaults.State.ServiceLocator.PUBLISHING);
+        Log.v(TAG, "publishing");
+        this.addState(State.Publishing);
     }
 
     @Override
     public void publishWaiting(Object extra) {
-        changeState(Defaults.State.ServiceLocator.PUBLISHING_WAITING);
+        Log.v(TAG, "waiting for broker connection");
+        this.addState(State.PublishConnectionWaiting);
     }
 
+    protected void setStateTo(State s) {
+        state.clear();
+        state.add(s);
+    }
 
-    private boolean isTickerState(Defaults.State.ServiceLocator s) {
-        return s == Defaults.State.ServiceLocator.NOLOCATION 
-                || s == Defaults.State.ServiceLocator.NOTOPIC
-                || s == Defaults.State.ServiceLocator.PUBLISHING_TIMEOUT 
-                || (sharedPreferences.getBoolean(Defaults.SETTINGS_KEY_TICKER_ON_PUBLISH, Defaults.VALUE_TICKER_ON_PUBLISH && 
-                        (s == Defaults.State.ServiceLocator.PUBLISHING || s == Defaults.State.ServiceLocator.PUBLISHING_WAITING)));
+    protected void addState(State s) {       
+        state.add(s);
+        if (isTickerState(s)) {
+            App.getInstance().updateTicker(getStateAsText());
+        }
+        App.getInstance().updateNotification();
+        EventBus.getDefault().post(new Events.StateChanged());
+    }
+
+    private boolean isTickerState(State s) {
+        return s == Defaults.State.LocatingFail || s == Defaults.State.NOTOPIC
+                || s == Defaults.State.PublishConnectionTimeout || s == Defaults.State.PublishConnectionWaiting || (s == Defaults.State.PublishConnectionWaiting && sharedPreferences.getBoolean(Defaults.SETTINGS_KEY_TICKER_ON_PUBLISH,
+                        Defaults.VALUE_TICKER_ON_PUBLISH));
+    }
+
+    protected void removeState(State s) {
+        state.remove(s);
+        EventBus.getDefault().post(new Events.StateChanged());
+    }
+
+    public void resetState() {
+        this.setStateTo(State.Idle);
+        EventBus.getDefault().post(new Events.StateChanged());
+        App.getInstance().updateNotification();
     }
 
     public Date getLastPublishDate() {
@@ -180,6 +237,8 @@ public abstract class ServiceLocator extends ServiceBindable implements MqttPubl
         return sharedPreferences.getBoolean(Defaults.SETTINGS_KEY_BACKGROUND_UPDATES,
                 Defaults.VALUE_BACKGROUND_UPDATES);
     }
+    
+
     
     public int getUpdateIntervall() {
         return Integer.parseInt(sharedPreferences.getString(Defaults.SETTINGS_KEY_BACKGROUND_UPDATES_INTERVAL,

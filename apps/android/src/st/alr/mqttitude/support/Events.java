@@ -7,19 +7,9 @@ import android.location.Location;
 import st.alr.mqttitude.services.ServiceMqtt;
 
 public class Events {
-    public static abstract class E {
-        Date date;
-        public E() {
-            this.date = new Date();
-        }
-        public Date getDate() {
-            return date;
-        } 
-       
-    }
-    
-    public static class PublishSuccessfull extends E{
+    public static class PublishSuccessfull {
         Object extra;
+        Date date;
         public PublishSuccessfull(Object extra) {
             this.extra = extra;
             this.date = new Date();
@@ -27,14 +17,83 @@ public class Events {
         public Object getExtra() {
             return extra;
         }
+        public Date getDate() {
+            return date;
+        }
+
     }
     
-    public static class LocationUpdated  extends E{
+    //Notification when new peer/friend added in UI
+    public static class NewPeerAdded {
+        String _peerusername;
+        
+        public NewPeerAdded(String peerUserName) {
+            this._peerusername = peerUserName;
+            
+        }
+        public String getPeerUserName() {
+            return _peerusername;
+        }
+        
+
+    }
+    
+    public static class UpdatedPeerLocation{
+    	
+    	String lng;
+    	String lat;
+    	String tst;
+    	String alt;
+    	String usr;
+    	String acc;
+    	String gca;
+    	
+    	public UpdatedPeerLocation(String _lng, String _lat, String _tst, String _alt, String _usr, String _acc, String _gca){
+    		this.lng = _lng;
+    		this.lat = _lat;
+    		this.tst = _tst;
+    		this.alt = _alt;
+    		this.usr = _usr;
+    		this.acc = _acc;
+    		this.gca = _gca;
+    	}
+    	
+    	public String getLng(){
+    		return lng;
+    	}
+    	
+    	public String getLat(){
+    		return lat;
+    	}
+    	
+    	public String getTst(){
+    		return tst;
+    	}
+    	
+    	public String getAlt(){
+    		return alt;
+    	}
+    	
+    	public String getUsr(){
+    		return usr;
+    	}
+    	
+    	public String getAcc(){
+    		return acc;
+    	}
+    	
+    	public String getGca(){
+    		return gca;
+    	}
+    	
+    	
+    }
+    
+    public static class LocationUpdated {
         GeocodableLocation l; 
         
         public LocationUpdated(GeocodableLocation l) {
             this.l = l;
-            
         }
 
         public GeocodableLocation getGeocodableLocation() {
@@ -43,37 +102,18 @@ public class Events {
         
         
     }
+    public static class MqttConnectivityChanged {
+		private ServiceMqtt.MQTT_CONNECTIVITY connectivity;
+
+		public MqttConnectivityChanged(
+				ServiceMqtt.MQTT_CONNECTIVITY connectivity) {
+			this.connectivity = connectivity;
+		}
+
+		public ServiceMqtt.MQTT_CONNECTIVITY getConnectivity() {
+			return connectivity;
+		}
+	}
     
-    public static class StateChanged {
-        public static class ServiceMqtt extends E{
-            private Defaults.State.ServiceMqtt state;
-            private Object extra;
-            
-            public ServiceMqtt(Defaults.State.ServiceMqtt state) {
-               this(state, null);
-            }
-            
-            public ServiceMqtt(Defaults.State.ServiceMqtt state, Object extra) {
-                this.state = state;
-                this.extra = extra;
-            }
-            public Defaults.State.ServiceMqtt getState() {
-                return this.state;
-            }
-            public Object getExtra() {
-                return extra;
-            }
-            
-        }
-        public static class ServiceLocator  extends E {
-            private Defaults.State.ServiceLocator state;
-            public ServiceLocator(Defaults.State.ServiceLocator state) {
-                this.state = state;
-            }
-            public Defaults.State.ServiceLocator getState() {
-                return this.state;
-            }
-            
-        }
-   }
+    public static class StateChanged {}
 }

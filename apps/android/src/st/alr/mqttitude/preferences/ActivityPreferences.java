@@ -1,48 +1,37 @@
 
 package st.alr.mqttitude.preferences;
 
-import java.util.prefs.Preferences;
-
 import st.alr.mqttitude.services.ServiceMqtt;
 import st.alr.mqttitude.support.Defaults;
 import st.alr.mqttitude.support.Events;
-import st.alr.mqttitude.ActivityStatus;
-import st.alr.mqttitude.App;
 import st.alr.mqttitude.R;
 import android.annotation.TargetApi;
-import android.app.Activity;
-import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.preference.Preference;
 import android.preference.Preference.OnPreferenceChangeListener;
-import android.preference.Preference.OnPreferenceClickListener;
 import android.preference.PreferenceActivity;
 import android.preference.PreferenceFragment;
 import android.preference.PreferenceManager;
 import android.util.Log;
 import android.view.Menu;
-import android.view.MenuItem;
 import de.greenrobot.event.EventBus;
 
 public class ActivityPreferences extends PreferenceActivity {
     private static Preference serverPreference;
     private static Preference backgroundUpdatesIntervall;
     private static Preference version;
-    private static Preference repo;
-    private static Preference mail;
-    static String ver;
+    private static PreferenceActivity activity;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        // Thanks Google for not providing a support version of the
-        // PreferenceFragment for older API versions
+        activity = this;
+        
+        // Thanks Google for not providing a support version of the PreferenceFragment for older API versions
         if (supportsFragment())
             onCreatePreferenceFragment();
         else
@@ -61,12 +50,10 @@ public class ActivityPreferences extends PreferenceActivity {
 
     @SuppressWarnings("deprecation")
     private void onSetupPreferenceActivity() {
-        repo = findPreference("repo");
-        mail = findPreference("mail");
         version = findPreference("versionReadOnly");
         serverPreference = findPreference("brokerPreference");
         backgroundUpdatesIntervall = findPreference(Defaults.SETTINGS_KEY_BACKGROUND_UPDATES_INTERVAL);
-        onSetupCommon(this);
+        onSetupCommon();
     }
 
     @TargetApi(11)
@@ -77,29 +64,22 @@ public class ActivityPreferences extends PreferenceActivity {
 
     @TargetApi(11)
     private static void onSetupPreferenceFragment(PreferenceFragment f) {
-        repo = f.findPreference("repo");
-        mail = f.findPreference("mail");
         version = f.findPreference("versionReadOnly");
         serverPreference = f.findPreference("brokerPreference");
         backgroundUpdatesIntervall = f
                 .findPreference(Defaults.SETTINGS_KEY_BACKGROUND_UPDATES_INTERVAL);
-        onSetupCommon(f.getActivity());
+        onSetupCommon();
     }
 
-    private static void onSetupCommon(final Activity a) {
-        PackageManager pm = a.getPackageManager();
-        try {
-            ver = pm.getPackageInfo(a.getPackageName(), 0).versionName;
-        } catch (NameNotFoundException e) {
-            ver = a.getString(R.string.na);
-        }
+    private static void onSetupCommon() {
+        PackageManager pm = activity.getPackageManager();
 
         backgroundUpdatesIntervall.setOnPreferenceChangeListener(new OnPreferenceChangeListener() {
             public boolean onPreferenceChange(Preference preference, Object newValue) {
                 Log.v(this.toString(), newValue.toString());
                 if (newValue.toString().equals("0")) {
                     SharedPreferences.Editor editor = PreferenceManager
-                            .getDefaultSharedPreferences(a).edit();
+                            .getDefaultSharedPreferences(activity).edit();
                     editor.putString(preference.getKey(), "1");
                     editor.commit();
                     return false;
@@ -108,49 +88,16 @@ public class ActivityPreferences extends PreferenceActivity {
             }
         });
 
-        version.setSummary(ver);
-
-        repo.setOnPreferenceClickListener(
-                new OnPreferenceClickListener() {
-                    @Override
-                    public boolean onPreferenceClick(Preference preference) {
-                        Intent intent = new Intent(Intent.ACTION_VIEW);
-                        intent.setData(Uri.parse(Defaults.VALUE_REPO_URL));
-                        a.startActivity(intent);
-                        return false;
-                    }
-                });
-
-        mail.setOnPreferenceClickListener(
-                new OnPreferenceClickListener() {
-                    @Override
-                    public boolean onPreferenceClick(Preference preference) {
-                        Intent intent = new Intent(Intent.ACTION_SEND);
-                        intent.setType("message/rfc822");
-
-                        intent.putExtra(Intent.EXTRA_EMAIL, new String[] {
-                            Defaults.VALUE_ISSUES_MAIL
-                        });
-                        intent.putExtra(Intent.EXTRA_SUBJECT, "MQTTitude (Version: " + ver + ")");
-                        a.startActivity(Intent.createChooser(intent, "Send Email"));
-                        return false;
-                    }
-                });
+        try {
+            version.setSummary(pm.getPackageInfo(activity.getPackageName(), 0).versionName);
+        } catch (NameNotFoundException e) {
+            version.setSummary(activity.getString(R.string.na));
+        }
 
         setServerPreferenceSummary();
 
-    }
-
-    @Override
-    public void onStart() {
-        super.onStart();
-        EventBus.getDefault().register(this);
-    }
-
-    @Override
-    public void onStop() {
-        EventBus.getDefault().unregister(this);
-        super.onStop();
+        // Register for connection changed events
+        EventBus.getDefault().register(activity);
     }
 
     @TargetApi(11)
@@ -170,22 +117,14 @@ public class ActivityPreferences extends PreferenceActivity {
         super.onDestroy();
     }
 
-    public void onEventMainThread(Events.StateChanged.ServiceMqtt event) {
+    public void onEventMainThread(Events.MqttConnectivityChanged event) {
         setServerPreferenceSummary();
     }
 
     private static void setServerPreferenceSummary() {
-        serverPreference.setSummary(ServiceMqtt.getStateAsString());
+        serverPreference.setSummary(ServiceMqtt.getConnectivityText());
     }
 
-    
-
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        getMenuInflater().inflate(R.menu.activity_status, menu);
-        return true;
-    }
-    
     @Override
     public boolean onPrepareOptionsMenu(Menu menu) {
         super.onPrepareOptionsMenu(menu);
@@ -195,18 +134,6 @@ public class ActivityPreferences extends PreferenceActivity {
     @Override
     public boolean onIsMultiPane() {
         return false;
-    }
-    
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        int itemId = item.getItemId();
-        if (itemId == R.id.menu_status) {
-                Intent intent1 = new Intent(this, ActivityStatus.class);
-                startActivity(intent1);
-                return true;
-        } else {
-            return super.onOptionsItemSelected(item);
-        }
     }
 
 }

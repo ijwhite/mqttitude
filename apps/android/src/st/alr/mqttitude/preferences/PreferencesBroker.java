@@ -2,6 +2,7 @@
 package st.alr.mqttitude.preferences;
 
 import st.alr.mqttitude.services.ServiceMqtt;
+import st.alr.mqttitude.services.ServiceMqtt.MQTT_CONNECTIVITY;
 import st.alr.mqttitude.support.Defaults;
 import st.alr.mqttitude.R;
 
@@ -27,7 +28,6 @@ public class PreferencesBroker extends DialogPreference {
     private EditText port;
     private EditText username;
     private EditText password;
-    private EditText clientId;
     private Spinner brokerSecurity;
     private View brokerSecuritySSLOptions;
     private View brokerSecurityNoneOptions;
@@ -55,7 +55,6 @@ public class PreferencesBroker extends DialogPreference {
         View root = super.onCreateDialogView();
         host = (EditText) root.findViewById(R.id.brokerHost);
         port = (EditText) root.findViewById(R.id.brokerPort);
-        clientId = (EditText) root.findViewById(R.id.brokerClientId);
         username = (EditText) root.findViewById(R.id.brokerUsername);
         password = (EditText) root.findViewById(R.id.brokerPassword);
         brokerSecurity = (Spinner) root.findViewById(R.id.brokerSecurity);
@@ -71,11 +70,6 @@ public class PreferencesBroker extends DialogPreference {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         host.setText(prefs.getString(Defaults.SETTINGS_KEY_BROKER_HOST, Defaults.VALUE_BROKER_HOST));
         port.setText(prefs.getString(Defaults.SETTINGS_KEY_BROKER_PORT, Defaults.VALUE_BROKER_PORT));
-        clientId.setHint(ServiceMqtt.getDefaultClientId());
-        
-        String cid = prefs.getString(Defaults.SETTINGS_KEY_BROKER_CLIENT_ID, "");
-        if(!cid.equals(""))
-            clientId.setText(cid);
         username.setText(prefs.getString(Defaults.SETTINGS_KEY_BROKER_USERNAME, ""));
         password.setText(prefs.getString(Defaults.SETTINGS_KEY_BROKER_PASSWORD, ""));
         brokerSecurity.setSelection(PreferenceManager.getDefaultSharedPreferences(context).getInt(Defaults.SETTINGS_KEY_BROKER_SECURITY, Defaults.VALUE_BROKER_SECURITY_NONE));
@@ -159,7 +153,6 @@ public class PreferencesBroker extends DialogPreference {
                 editor.putString(Defaults.SETTINGS_KEY_BROKER_PORT, port.getText().toString());
                 editor.putString(Defaults.SETTINGS_KEY_BROKER_USERNAME, username.getText().toString());
                 editor.putString(Defaults.SETTINGS_KEY_BROKER_PASSWORD, password.getText().toString());
-                editor.putString(Defaults.SETTINGS_KEY_BROKER_CLIENT_ID, clientId.getText().toString());
                 editor.putInt(Defaults.SETTINGS_KEY_BROKER_SECURITY, brokerSecurity.getSelectedItemPosition());
                 editor.putString(Defaults.SETTINGS_KEY_BROKER_SECURITY_SSL_CA_PATH, brokerSecuritySSLCaCrtPath.getText().toString());
                 
@@ -226,8 +219,8 @@ public class PreferencesBroker extends DialogPreference {
         if (v == null)
             return;
 
-        if (ServiceMqtt.getState() == Defaults.State.ServiceMqtt.CONNECTING
-                || ServiceMqtt.getState() == Defaults.State.ServiceMqtt.CONNECTED) {
+        if (ServiceMqtt.getConnectivity() == MQTT_CONNECTIVITY.CONNECTING
+                || ServiceMqtt.getConnectivity() == MQTT_CONNECTIVITY.CONNECTED) {
             v.setEnabled(true);
         } else {
             v.setEnabled(false);
